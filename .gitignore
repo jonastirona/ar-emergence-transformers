@@ -205,3 +205,49 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project-specific ignores
+# Data directories (users should provide their own)
+/data/
+/raw_data/
+
+# Results and outputs (keep structure, ignore generated files)
+results/*.csv
+results/*.pdf
+results/*.png
+results/*.json
+results/unified_evaluations/*
+!results/.gitkeep
+!results/unified_evaluations/.gitkeep
+
+# SLURM job outputs
+*.out
+*.err
+slurm-*.out
+slurm-*.err
+
+# Checkpoints (keep provided ones, ignore user-generated)
+models/checkpoints/*.pth
+!models/checkpoints/lstm_baseline.pth
+!models/checkpoints/baseline_conv1d.pth
+!models/checkpoints/baseline_no_conv1d.pth
+!models/checkpoints/earlydetect_conv1d.pth
+!models/checkpoints/earlydetect_no_conv1d.pth
+
+# Python cache
+*.pyc
+__pycache__/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.venv/
+venv/
+ENV/
+env/

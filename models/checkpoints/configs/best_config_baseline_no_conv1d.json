@@ -1,0 +1,28 @@
+{
+  "best_config": {
+    "d_model": 128,
+    "nhead": 4,
+    "num_layers": 3,
+    "dropout": 0.0,
+    "learning_rate": 0.001,
+    "output_len": 12,
+    "use_temporal_conv": false
+  },
+  "best_score": 0.002862688183085993,
+  "best_trial_idx": 0,
+  "best_model_path": "models/checkpoints/baseline_no_conv1d.pth",
+  "total_trials": 16,
+  "total_ar_evaluations": 80,
+  "successful_ar_evaluations": 80,
+  "overall_ar_success_rate": 1.0,
+  "method": "enhanced_transformer_with_conv1d",
+  "evaluated_ars": [
+    11698,
+    11726,
+    13165,
+    13179,
+    13183
+  ],
+  "conv1d_enabled": false,
+  "search_completed": "2025-10-20T00:53:09.175434"
+}

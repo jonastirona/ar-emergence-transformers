@@ -1,0 +1,42 @@
+# Core dependencies for AR Emergence Transformers
+# Generated from docs/current_versions.txt
+# Install with: pip install -r requirements.txt
+
+# Deep Learning
+torch==2.7.0
+torchaudio==2.7.0
+torchvision==0.22.0
+
+# Scientific Computing
+numpy==2.2.6
+scipy==1.15.3
+pandas==2.3.0
+scikit-learn==1.6.1
+
+# Visualization
+matplotlib==3.10.3
+seaborn==0.13.2
+plotly==6.1.2
+pillow==11.2.1
+
+# Astronomy/Astrophysics
+astropy==7.1.0
+astropy-iers-data==0.2025.6.2.0.38.23
+
+# Hyperparameter Optimization
+optuna==4.3.0
+
+# Model Profiling (for complexity analysis)
+thop>=0.1.0
+
+# Utilities
+tqdm==4.67.1
+pyyaml==6.0.2
+python-dotenv==1.1.1
+
+# Optional: Experiment Tracking
+wandb==0.20.1
+
+# Note: CUDA-specific packages (nvidia-*) are automatically installed
+# with PyTorch if CUDA is available. For CPU-only installations,
+# these can be ignored.
