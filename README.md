@@ -2,9 +2,15 @@
 
 Transformer-based forecasting of continuum intensity for early detection of solar active region (AR) emergence using SDO/HMI data. This repository contains the code, pre-trained models, and evaluation tools for the paper:
 
-> **"Forecasting Continuum Intensity for Solar Active Region Emergence Prediction using Transformers"**
+> **"Forecasting Continuum Intensity for Solar Active Region Emergence Prediction using Transformers"** (under review)
 
 This work presents a systematic ablation study evaluating Transformer architectures for predicting AR emergence, achieving a **10.6% improvement in RMSE** and **4.73 hours advance warning** compared to LSTM baselines.
+
+## Model Architecture
+
+![Transformer Architecture](Transformer.png)
+
+**Figure 1**: End-to-end pipeline for predicting continuum intensity decrease during AR emergence. The model processes SDO/HMI magnetic flux (Φ) map cut-outs and acoustic power maps, forming a feature tensor X. Input sequences are created using sliding windows of length W = 110 with P = 12 prediction targets. The encoder-based Transformer architecture processes these sequences through multi-scale 1D convolutions and multi-head attention layers to predict continuum intensity evolution Ŷ. The model is trained with an emergence-aware loss function that combines MSE, early detection rewards, and derivative-based penalties.
 
 ## Key Results
 
@@ -45,14 +51,28 @@ pip install -r requirements.txt
 
 ## Quick Start
 
-### 1. Download Data
+### 1. Data Download
 
 Data can be downloaded from the [SolARED Portal](https://sun.njit.edu/sarportal/):
 - Visit https://sun.njit.edu/sarportal/
 - Download data for test ARs: 11698, 11726, 13165, 13179, 13183
 - Convert to `.npz` format (see [`docs/DATA_FORMAT.md`](docs/DATA_FORMAT.md))
 
-### 2. Run Evaluation
+Organize your data files in this structure:
+```
+/path/to/your/data/
+├── AR11698/
+│   ├── mean_pmdop11698_flat.npz
+│   ├── mean_mag11698_flat.npz
+│   └── mean_int11698_flat.npz
+├── AR11726/
+│   └── ...
+└── ... (other ARs)
+```
+
+### 2. Evaluation (Using Pre-trained Checkpoints)
+
+If you want to directly use the pre-trained checkpoints provided in this repository:
 
 ```bash
 cd scripts/eval
@@ -66,6 +86,10 @@ python evaluate_all_experiments.py \
 - PDF plots: `results/unified_evaluations/pdf/AR{AR}_all_models_comparison.pdf`
 - CSV metrics: `results/unified_evaluations/csv/all_ARs_metrics.csv`
 - Timing table: `results/unified_evaluations/csv/all_ARs_emergence_timing_table.csv`
+
+### 3. Training (Retrain from Scratch)
+
+To retrain models from scratch, see the [Training](#training) section below.
 
 ## Repository Structure
 
@@ -162,7 +186,8 @@ If you use this code or models, please cite:
   title={Forecasting Continuum Intensity for Solar Active Region Emergence Prediction using Transformers},
   author={Tirona, Jonas and Patil, Sarang and Kasapis, Spiridon and Dogan, Eren and Stefan, John and Kitiashvili, Irina N. and Kosovichev, Alexander G. and Xu, Mengjia},
   journal={Journal of Geophysical Research: Machine Learning and Computation},
-  year={2025}
+  year={2025},
+  note={under review}
 }
 ```
 
@@ -172,7 +197,8 @@ If you use this code or models, please cite:
   title={SolARED: Solar Active Region Emergence Dataset},
   author={Kasapis, S. and Kitiashvili, I. N. and Kosovichev, A. G. and Stefan, J. T.},
   journal={ApJS},
-  year={2025}
+  year={2025},
+  note={under review}
 }
 ```
 
