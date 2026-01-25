@@ -8,7 +8,7 @@ This work presents a systematic ablation study evaluating Transformer architectu
 
 ## Model Architecture
 
-![Transformer Architecture](Transformer.png)
+![Transformer Architecture](Transformer.jpeg)
 
 **Figure 1**: End-to-end pipeline for predicting continuum intensity decrease during AR emergence. The model processes SDO/HMI magnetic flux (Φ) map cut-outs and acoustic power maps, forming a feature tensor X. Input sequences are created using sliding windows of length W = 110 with P = 12 prediction targets. The encoder-based Transformer architecture processes these sequences through multi-scale 1D convolutions and multi-head attention layers to predict continuum intensity evolution Ŷ. The model is trained with an emergence-aware loss function that combines MSE, early detection rewards, and derivative-based penalties.
 
