@@ -126,10 +126,10 @@ python scripts/train/earlydetect_train.py \
 The evaluation script computes several metrics per model and AR (matching paper Section 2.3):
 
 1. **Overall RMSE**: Root Mean Squared Error for intensity prediction (normalized for Table 1, denormalized for per-AR tables)
-2. **Timing Difference (ΔT)**: Difference in emergence detection timing (hours)
-   - Negative values = early (advance) prediction
-   - Positive values = late prediction
-   - Emergence threshold: derivative < -0.01 for k=4 consecutive hours
+2. **Operational Lead Time (T_lead)**: `T_lead = (t_onset_obs − t_onset_pred) + 12h`
+   - Positive values = genuine early alert (predicted before observed onset)
+   - Negative values = late prediction (missed the window)
+   - TP window: T_lead ∈ [0, 24] h; emergence threshold: derivative < −0.01 for k ≥ 4 consecutive hours
 3. **Emergence RMSE**: RMSE computed only within the 24-hour emergence window
 4. **Model Complexity**: Parameters, FLOPs, Peak Memory, Forward Pass Time (from profiling script)
 
@@ -175,7 +175,7 @@ This repository reproduces results from:
   - Conv1D front-end: Yes/No
   - Architecture: Baseline vs. Early Detection
 - **Result**: 4 Transformer configurations + LSTM baseline = 5 total models
-- **Best Model**: EarlyDetect (no Conv1D) - RMSE: 0.1189, Timing: -4.73h
+- **Best Model**: EarlyDetect (no Conv1D) - RMSE: 0.1189, highest operational T_lead
 
 **Dataset:**
 - **Source**: SolARED (Solar Active Region Emergence Dataset)

@@ -4,7 +4,7 @@ Transformer-based forecasting of continuum intensity for early detection of sola
 
 > **"Forecasting Continuum Intensity for Solar Active Region Emergence Prediction using Transformers"** (under review)
 
-This work presents a systematic ablation study evaluating Transformer architectures for predicting AR emergence, achieving a **10.6% improvement in RMSE** and **4.73 hours advance warning** compared to LSTM baselines.
+This work presents a systematic ablation study evaluating Transformer architectures for predicting AR emergence, achieving a **10.6% improvement in RMSE** and demonstrated early-alert lead time advantage compared to LSTM baselines.
 
 ## Model Architecture
 
@@ -14,7 +14,7 @@ This work presents a systematic ablation study evaluating Transformer architectu
 
 ## Key Results
 
-- **Best Model**: EarlyDetect (no Conv1D) - RMSE: 0.1189, Timing: -4.73h (early detection)
+- **Best Model**: EarlyDetect (no Conv1D) - RMSE: 0.1189, highest operational T_lead (early alert)
 - **5 Models Evaluated**: LSTM Baseline, Baseline, Baseline+Conv1D, EarlyDetect, EarlyDetect+Conv1D
 - **Test Set**: 5 held-out active regions (ARs 11698, 11726, 13165, 13179, 13183)
 - **Dataset**: SolARED - 46 ARs from SDO/HMI (41 train/val, 5 test)
@@ -31,7 +31,7 @@ This work presents a **factorial ablation study** (2×2 design) evaluating:
 **Key Findings:**
 - Early Detection architecture is the most critical factor for early prediction
 - Conv1D front-end was found to be detrimental to performance
-- Best model: EarlyDetect (no Conv1D) achieves 4.73h advance warning
+- Best model: EarlyDetect (no Conv1D) achieves highest operational lead time (T_lead)
 
 ## Installation
 
@@ -164,9 +164,9 @@ See [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) for full training instr
 The evaluation script computes metrics matching the paper (Section 2.3):
 
 1. **Overall RMSE**: Root Mean Squared Error (normalized for summary, denormalized for per-AR)
-2. **Timing Difference (ΔT)**: Emergence detection timing (hours)
-   - Negative = early prediction, Positive = late prediction
-   - Threshold: derivative < -0.01 for k=4 consecutive hours
+2. **Operational Lead Time (T_lead)**: `T_lead = (t_onset_obs − t_onset_pred) + 12h`
+   - Positive = genuine early alert; Negative = late (missed window)
+   - TP window: T_lead ∈ [0, 24] h; emergence threshold: derivative < −0.01 for k ≥ 4 consecutive hours
 3. **Emergence RMSE**: RMSE within 24-hour emergence window
 4. **Model Complexity**: Parameters, FLOPs, Memory, Inference Time
 

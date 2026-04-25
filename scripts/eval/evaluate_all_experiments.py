@@ -63,23 +63,47 @@ def safe_gradient(arr, min_length=2):
     return np.gradient(arr)
 
 
-def find_first_emergence_window(signal, threshold=-0.01, min_duration=4):
-    """Find the first 24-hour emergence window"""
+def find_emergence_windows(signal, threshold=-0.01, min_duration=4):
+    """Find all sustained emergence windows as (start, end_exclusive)."""
     emergence_indices = emergence_indication(signal, threshold, min_duration)
-    
-    first_emergence_start = None
+    windows = []
+    in_window = False
+    start_idx = None
     for i, val in enumerate(emergence_indices):
-        if val != 0:
-            first_emergence_start = i
-            break
-    
-    if first_emergence_start is None:
-        return None, None
-    
-    window_size = 24
-    emergence_end = min(first_emergence_start + window_size, len(signal))
-    
-    return first_emergence_start, emergence_end
+        if val != 0 and not in_window:
+            in_window = True
+            start_idx = i
+        elif val == 0 and in_window:
+            windows.append((start_idx, i))
+            in_window = False
+            start_idx = None
+    if in_window and start_idx is not None:
+        windows.append((start_idx, len(emergence_indices)))
+    return windows
+
+
+def select_onset_from_windows(windows, prediction_start_idx=0, lookback_tolerance=12):
+    """Select onset relative to prediction start, prioritizing ongoing-at-start events."""
+    if not windows:
+        return None, None, "no_window"
+
+    for start, end in windows:
+        if start <= prediction_start_idx < end:
+            return prediction_start_idx, end, "window_contains_prediction_start"
+
+    best_recent = None
+    for start, end in windows:
+        if end <= prediction_start_idx and (prediction_start_idx - end) <= lookback_tolerance:
+            if best_recent is None or end > best_recent[1]:
+                best_recent = (start, end)
+    if best_recent is not None:
+        return prediction_start_idx, prediction_start_idx, "window_just_before_prediction_start"
+
+    for start, end in windows:
+        if start >= prediction_start_idx:
+            return start, end, "first_window_after_prediction_start"
+
+    return None, None, "only_windows_before_prediction_start"
 
 
 def calculate_emergence_timing_normalized(true_norm, pred_lstm_norm, pred_transformer_norm, threshold=-0.01, min_duration=4):
@@ -88,26 +112,26 @@ def calculate_emergence_timing_normalized(true_norm, pred_lstm_norm, pred_transf
     d_lstm = np.gradient(pred_lstm_norm)
     d_transformer = np.gradient(pred_transformer_norm)
     
-    obs_start, obs_end = find_first_emergence_window(d_obs, threshold, min_duration)
-    lstm_start, lstm_end = find_first_emergence_window(d_lstm, threshold, min_duration)
-    transformer_start, transformer_end = find_first_emergence_window(d_transformer, threshold, min_duration)
+    obs_start, obs_end, _ = select_onset_from_windows(find_emergence_windows(d_obs, threshold, min_duration))
+    lstm_start, lstm_end, _ = select_onset_from_windows(find_emergence_windows(d_lstm, threshold, min_duration))
+    transformer_start, transformer_end, _ = select_onset_from_windows(find_emergence_windows(d_transformer, threshold, min_duration))
     
-    lstm_timing_diff = None
-    transformer_timing_diff = None
+    lstm_lead_time = None
+    transformer_lead_time = None
     
     if obs_start is not None:
         if lstm_start is not None:
-            lstm_timing_diff = (lstm_start - obs_start)
+            lstm_lead_time = (obs_start - lstm_start) + 12
         if transformer_start is not None:
-            transformer_timing_diff = (transformer_start - obs_start)
+            transformer_lead_time = (obs_start - transformer_start) + 12
     
     return {
         'lstm': {
-            'emergence_timing_diff': lstm_timing_diff,
+            'emergence_lead_time': lstm_lead_time,
             'emergence_window': (lstm_start, lstm_end) if lstm_start is not None else None
         },
         'transformer': {
-            'emergence_timing_diff': transformer_timing_diff,
+            'emergence_lead_time': transformer_lead_time,
             'emergence_window': (transformer_start, transformer_end) if transformer_start is not None else None
         },
         'observed': {
@@ -187,32 +211,29 @@ def calculate_emergence_metrics_detailed(true_norm, pred_lstm_norm, pred_transfo
         'observed': timing_metrics['observed']
     }
 
-def format_emergence_status(timing_diff, has_observed, has_predicted):
-    """Format emergence timing difference into table status string
-    
+def format_emergence_status(lead_time, has_observed, has_predicted):
+    """Format emergence lead time into table status string
+
     Status meanings:
     - "Quiet": No emergence in reality
     - "FP": Model predicted emergence but there was none (False Positive)
     - "FN": Model didn't predict emergence when there was one (False Negative)
-    - "Xh Alarm": Timing difference in hours (positive = early, negative = late)
+    - "Xh Alarm": Lead time in hours (positive = early alert, negative = late)
     """
     if not has_observed:
-        # No observed emergence
         if has_predicted:
-            return "FP"  # Model predicted but no actual emergence
+            return "FP"
         else:
-            return "Quiet"  # No emergence, no prediction
+            return "Quiet"
     else:
-        # Has observed emergence
-        if not has_predicted or timing_diff is None:
-            return "FN"  # Model didn't predict when there was emergence
+        if not has_predicted or lead_time is None:
+            return "FN"
         else:
-            # Both observed and predicted - show timing difference
-            return f"{int(timing_diff)}h Alarm"
+            return f"{int(lead_time)}h Alarm"
 
 
 def export_emergence_timing_table(all_tile_metrics, test_AR, start_tile, output_dir, model_configs):
-    """Export emergence timing differences per tile per model to CSV in table format"""
+    """Export emergence lead times per tile per model to CSV in table format"""
     csv_dir = Path(output_dir) / 'unified_evaluations' / 'csv'
     csv_dir.mkdir(parents=True, exist_ok=True)
     
@@ -237,7 +258,7 @@ def export_emergence_timing_table(all_tile_metrics, test_AR, start_tile, output_
         row = {'Model': model_name}
         
         # Process each tile
-        tile_timing_diffs = []
+        tile_lead_times = []
         for i, tile_metrics in enumerate(all_tile_metrics):
             tile_num = start_tile + i + 10  # Display tile number (1-indexed)
             
@@ -247,24 +268,24 @@ def export_emergence_timing_table(all_tile_metrics, test_AR, start_tile, output_
             
             # Check model prediction
             model_metrics = tile_metrics.get(model_key, {})
-            timing_diff = model_metrics.get('emergence_timing_diff')
+            lead_time = model_metrics.get('emergence_lead_time')
             # Check if model predicted emergence (has emergence_window)
             pred_window = model_metrics.get('emergence_window')
             has_predicted = pred_window is not None
             
             # Format status
-            status = format_emergence_status(timing_diff, has_observed, has_predicted)
+            status = format_emergence_status(lead_time, has_observed, has_predicted)
             row[f'Tile {tile_num}'] = status
             
-            # Collect timing diffs for overall calculation (only if both observed and predicted)
-            if has_observed and has_predicted and timing_diff is not None:
-                tile_timing_diffs.append(timing_diff)
+            # Collect lead times for overall calculation (only if both observed and predicted)
+            if has_observed and has_predicted and lead_time is not None:
+                tile_lead_times.append(lead_time)
         
         # Calculate overall status
-        if len(tile_timing_diffs) > 0:
-            # Use mean timing difference for overall
-            overall_timing = np.mean(tile_timing_diffs)
-            overall_status = format_emergence_status(overall_timing, True, True)
+        if len(tile_lead_times) > 0:
+            # Use mean lead time for overall
+            overall_lead_time = np.mean(tile_lead_times)
+            overall_status = format_emergence_status(overall_lead_time, True, True)
         else:
             # Check if any tile had observed emergence
             any_observed = any(
@@ -313,7 +334,7 @@ def export_metrics_to_csv(all_tile_metrics, test_AR, output_dir, model_configs):
             'emerg_MAE': [],
             'emerg_RMSE': [],
             'emerg_R2': [],
-            'emergence_timing_diff': []
+            'emergence_lead_time': []
         }
     
     # Aggregate metrics from all tiles
@@ -332,7 +353,7 @@ def export_metrics_to_csv(all_tile_metrics, test_AR, output_dir, model_configs):
         model_name = model_names_map[model_key]
         row = {'Model': model_name}
         
-        for metric_name in ['MAE', 'RMSE', 'R2', 'emerg_MAE', 'emerg_RMSE', 'emerg_R2', 'emergence_timing_diff']:
+        for metric_name in ['MAE', 'RMSE', 'R2', 'emerg_MAE', 'emerg_RMSE', 'emerg_R2', 'emergence_lead_time']:
             values = metrics_by_model[model_key][metric_name]
             if len(values) > 0:
                 mean_val = np.mean(values)
@@ -396,7 +417,7 @@ def export_combined_emergence_timing_table(all_results, output_dir, model_config
             row = {'AR': test_AR, 'Model': model_name}
             
             # Process each tile for this AR
-            tile_timing_diffs = []
+            tile_lead_times = []
             for i, tile_metrics in enumerate(all_tile_metrics):
                 tile_num = start_tile + i + 10
                 tile_col = f'Tile {tile_num}'
@@ -407,21 +428,21 @@ def export_combined_emergence_timing_table(all_results, output_dir, model_config
                 
                 # Check model prediction
                 model_metrics = tile_metrics.get(model_key, {})
-                timing_diff = model_metrics.get('emergence_timing_diff')
+                lead_time = model_metrics.get('emergence_lead_time')
                 pred_window = model_metrics.get('emergence_window')
                 has_predicted = pred_window is not None
                 
                 # Format status
-                status = format_emergence_status(timing_diff, has_observed, has_predicted)
+                status = format_emergence_status(lead_time, has_observed, has_predicted)
                 row[tile_col] = status
                 
-                # Collect timing diffs for overall calculation
-                if has_observed and has_predicted and timing_diff is not None:
-                    tile_timing_diffs.append(timing_diff)
+                # Collect lead times for overall calculation
+                if has_observed and has_predicted and lead_time is not None:
+                    tile_lead_times.append(lead_time)
             
             # Calculate overall status
-            if len(tile_timing_diffs) > 0:
-                overall_timing = np.mean(tile_timing_diffs)
+            if len(tile_lead_times) > 0:
+                overall_timing = np.mean(tile_lead_times)
                 overall_status = format_emergence_status(overall_timing, True, True)
             else:
                 any_observed = any(
@@ -479,7 +500,7 @@ def export_combined_metrics_to_csv(all_results, output_dir, model_configs):
             'emerg_MAE': [],
             'emerg_RMSE': [],
             'emerg_R2': [],
-            'emergence_timing_diff': []
+            'emergence_lead_time': []
         }
     
     # Aggregate metrics from all ARs and tiles
@@ -499,7 +520,7 @@ def export_combined_metrics_to_csv(all_results, output_dir, model_configs):
         model_name = model_names_map[model_key]
         row = {'Model': model_name}
         
-        for metric_name in ['MAE', 'RMSE', 'R2', 'emerg_MAE', 'emerg_RMSE', 'emerg_R2', 'emergence_timing_diff']:
+        for metric_name in ['MAE', 'RMSE', 'R2', 'emerg_MAE', 'emerg_RMSE', 'emerg_R2', 'emergence_lead_time']:
             values = metrics_by_model[model_key][metric_name]
             if len(values) > 0:
                 mean_val = np.mean(values)
@@ -573,9 +594,9 @@ def create_emergence_metrics_table(ax, all_metrics, model_keys, model_names_disp
             for m in model_keys
         ])
     
-    # Timing difference
-    data.append(['Δ Emergence (hrs)'] + [
-        f'{all_metrics[m]["emergence_timing_diff"]:+.0f}' if m in all_metrics and all_metrics[m].get("emergence_timing_diff") is not None else 'N/A'
+    # Lead time
+    data.append(['T_lead (hrs)'] + [
+        f'{all_metrics[m]["emergence_lead_time"]:+.0f}' if m in all_metrics and all_metrics[m].get("emergence_lead_time") is not None else 'N/A'
         for m in model_keys
     ])
     
@@ -615,7 +636,7 @@ def create_emergence_metrics_table(ax, all_metrics, model_keys, model_names_disp
         else:
             cell.set_facecolor('#d9ead3')
         
-        if 'Δ Emergence' in str(cell.get_text().get_text()) and col == 0:
+        if 'T_lead' in str(cell.get_text().get_text()) and col == 0:
             cell.set_text_props(fontsize=scaled_font(16))
         else:
             cell.set_text_props(fontsize=scaled_font(18))
@@ -1325,7 +1346,7 @@ def evaluate_all_models_on_ar(
         # Calculate observed emergence window using recalibrated normalized data
         # Use np.gradient() to match experiment_f_hyperparam_search.py
         d_obs_norm_for_timing = np.gradient(smooth_with_numpy(true_calibrated))
-        obs_start, obs_end = find_first_emergence_window(d_obs_norm_for_timing, thr, st)
+        obs_start, obs_end, _ = select_onset_from_windows(find_emergence_windows(d_obs_norm_for_timing, thr, st))
         if obs_start is not None and obs_end is not None:
             obs_window_info = (obs_start, obs_end)
         
@@ -1338,11 +1359,11 @@ def evaluate_all_models_on_ar(
             # Timing metrics using recalibrated normalized data (matching experiment_f_hyperparam_search.py)
             # Use np.gradient() to match experiment_f_hyperparam_search.py
             d_pred_norm = np.gradient(pred_calibrated)
-            pred_start, pred_end = find_first_emergence_window(d_pred_norm, thr, st)
+            pred_start, pred_end, _ = select_onset_from_windows(find_emergence_windows(d_pred_norm, thr, st))
             
-            timing_diff = None
+            lead_time = None
             if obs_start is not None and pred_start is not None:
-                timing_diff = pred_start - obs_start
+                lead_time = (obs_start - pred_start) + 12
             
             # Accuracy metrics using denormalized data
             def calc_basic_metrics(y_true, y_pred):
@@ -1372,7 +1393,7 @@ def evaluate_all_models_on_ar(
                 'emerg_MAE': emerg_mae,
                 'emerg_RMSE': emerg_rmse,
                 'emerg_R2': emerg_r2,
-                'emergence_timing_diff': timing_diff,
+                'emergence_lead_time': lead_time,
                 'emergence_window': pred_window  # Store model's predicted emergence window
             }
         
@@ -1402,17 +1423,20 @@ def evaluate_all_models_on_ar(
         
         # Recalculate emergence window from FULL array (for correct visualization alignment)
         # This ensures the window indices match the full concatenated array used in plots
-        obs_window_full = find_first_emergence_window(d_obs_norm, thr, st)
-        
+        obs_window_full_start, obs_window_full_end, _ = select_onset_from_windows(
+            find_emergence_windows(d_obs_norm, thr, st), prediction_start_idx=before_plot
+        )
+        obs_window_full = (obs_window_full_start, obs_window_full_end) if obs_window_full_start is not None else None
+
         # Also get the window from metrics (relative to prediction portion only) for metrics calculation
         obs_window = all_model_metrics.get('observed', {}).get('emergence_window')
-        
+
         t_start = None
         t_end = None
         if obs_window_full and obs_window_full[0] is not None and obs_window_full[1] is not None:
             # Use the window calculated from full array - indices are already correct for visualization
             start_idx = obs_window_full[0]
-            end_idx = obs_window_full[1] - 1  # end_idx is exclusive in find_first_emergence_window
+            end_idx = obs_window_full[1] - 1  # end_idx is exclusive
             if start_idx < len(tnum) and end_idx < len(tnum):
                 t_start = tnum[start_idx]
                 t_end = tnum[end_idx]
@@ -1505,7 +1529,7 @@ def evaluate_all_models_on_ar(
         # Derivative plots - display denormalized values but use normalized timing
         # Observed derivative
         ax1 = fig.add_subplot(gs1[1], sharex=ax0)
-        ax1.plot(tnum, d_obs_raw, color='black', linewidth=2.5, label='No Prediction')
+        ax1.plot(tnum, d_obs_raw, color='black', linewidth=2.5, label='_nolegend_')
         
         if obs_window_full and t_start is not None and t_end is not None:
             ax1.axvspan(t_start, t_end, color='yellow', alpha=0.3)
@@ -1521,8 +1545,6 @@ def evaluate_all_models_on_ar(
                         has_obs_emergence = True
         ax1.set_ylabel(r'$\frac{dObs}{dt}$', fontsize=scaled_font(22), labelpad=30)
         ax1.tick_params(labelsize=scaled_font(18), labelbottom=False)
-        if has_obs_emergence:
-            ax1.legend(loc='upper left', fontsize=scaled_font(14), framealpha=0.9)
         
         # Calculate range for observed derivative (will be set after all three are calculated)
         d_obs_finite = d_obs_raw[np.isfinite(d_obs_raw)]
@@ -1545,7 +1567,7 @@ def evaluate_all_models_on_ar(
                     color=lstm_info['color'], 
                     linestyle=lstm_info['linestyle'],
                     linewidth=2.5,
-                    label='No Prediction')
+                    label='_nolegend_')
             
             # Use normalized timing indices for highlighting
             if 'lstm' in ind_predictions_norm:
@@ -1587,7 +1609,7 @@ def evaluate_all_models_on_ar(
                     color=exp_c_info['color'], 
                     linestyle=exp_c_info['linestyle'],
                     linewidth=2.5,
-                    label='No Prediction')
+                    label='_nolegend_')
             
             # Use normalized timing indices for highlighting
             if 'exp_d' in ind_predictions_norm:
@@ -1627,11 +1649,18 @@ def evaluate_all_models_on_ar(
             ax3.axvspan(t_start, t_end, color='yellow', alpha=0.3)
         ax3.set_ylabel(r'$\frac{dEarlyDetect}{dt}$', fontsize=scaled_font(22), labelpad=30)
         ax3.tick_params(labelsize=scaled_font(18), labelbottom=False)
-        if 'exp_d' in d_predictions_raw and 'exp_d' in models:
-            ax3.legend(loc='upper left', fontsize=scaled_font(14), framealpha=0.9)
         ax3.grid(True)
         ax3.set_xlim(tnum[0], tnum[-1])
-        
+
+        # Emergence (green) may appear on any derivative; one legend on observed only.
+        if has_obs_emergence or has_lstm_emergence or has_emergence_expc:
+            ax1.plot([], [], color="#00CC66", linewidth=3, label="Emergence")
+            ax1.legend(
+                loc="upper left",
+                fontsize=scaled_font(14),
+                framealpha=0.9,
+            )
+
         # Error analysis (with date labels)
         ax4 = fig.add_subplot(gs1[4], sharex=ax0)
         for model_name, model_info in models.items():
@@ -1707,8 +1736,28 @@ def evaluate_all_models_on_ar(
             vmin = vmax = None
         ax.imshow(image, cmap='gray', origin='lower', vmin=vmin, vmax=vmax)
         add_grid_lines(ax, divisions=9, color='w', linewidth=1.5)
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        tile_width = (xlim[1] - xlim[0]) / 9
+        tile_height = (ylim[1] - ylim[0]) / 9
         for tile_num in tiles_to_highlight:
             highlight_tile(ax, tile_num, divisions=9, color='r', linewidth=2.5)
+            tile_zero_indexed = tile_num - 1
+            tile_row = tile_zero_indexed // 9
+            tile_col = tile_zero_indexed % 9
+            tile_x_center = xlim[0] + (tile_col + 0.5) * tile_width
+            tile_bottom = ylim[1] - (tile_row + 1) * tile_height
+            ax.text(
+                tile_x_center,
+                tile_bottom - 0.12 * tile_height,
+                f'{tile_num}',
+                color='red',
+                fontsize=scaled_font(14),
+                ha='center',
+                va='top',
+                fontweight='bold',
+                clip_on=False
+            )
         highlight_tile_group(ax, tiles_to_highlight, divisions=9, color='r', linewidth=4)
         ax.set_title(panel_title, fontsize=scaled_font(22))
         ax.set_xlabel(timestamp_label, fontsize=scaled_font(20), labelpad=12)
@@ -1825,7 +1874,7 @@ def main():
         },
         'exp_d': {
             # EarlyDetect: experiment_f (timing loss without Conv1D)
-            # Best model: trial_039 with -4.73h timing (early detection)
+            # Best model: trial_039 (highest T_lead, early detection)
             'path': str(ROOT / 'models' / 'checkpoints' / 'earlydetect_no_conv1d.pth'),
             'config_path': str(ROOT / 'models' / 'checkpoints' / 'configs' / 'best_config_earlydetect_no_conv1d.json'),
             'name': 'EarlyDetect',

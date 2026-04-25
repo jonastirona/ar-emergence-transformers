@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to calculate Transformer RMSE, Timing Difference, Emergence RMSE, and Model Efficiency
+Script to calculate Transformer RMSE, Lead Time, Emergence RMSE, and Model Efficiency
 for the LSTM baseline model.
 
 This script evaluates the LSTM model on all test ARs and calculates the same metrics
@@ -88,10 +88,10 @@ def calculate_emergence_metrics(true, pred_lstm, threshold=-0.01, min_duration=4
         if len(window_true) > 0:
             lstm_emerg_mae, lstm_emerg_rmse, lstm_emerg_r2 = calc_basic_metrics(window_true, window_lstm)
     
-    # Calculate timing difference
-    lstm_timing_diff = None
+    # Calculate lead time
+    lstm_lead_time = None
     if obs_start is not None and lstm_start is not None:
-        lstm_timing_diff = (lstm_start - obs_start)
+        lstm_lead_time = (obs_start - lstm_start) + 12
     
     return {
         'lstm_mae': lstm_mae,
@@ -100,7 +100,7 @@ def calculate_emergence_metrics(true, pred_lstm, threshold=-0.01, min_duration=4
         'lstm_emerg_mae': lstm_emerg_mae,
         'lstm_emerg_rmse': lstm_emerg_rmse,  # Emergence RMSE
         'lstm_emerg_r2': lstm_emerg_r2,
-        'timing_diff': lstm_timing_diff,  # Timing difference
+        'lead_time': lstm_lead_time,
         'emergence_window_observed': (obs_start, obs_end) if obs_start is not None else None,
         'emergence_window_lstm': (lstm_start, lstm_end) if lstm_start is not None else None
     }
@@ -416,7 +416,7 @@ def main():
         print(f"  Overall MAE: {overall_metrics.get('lstm_mae', 'N/A'):.6f}")
         print(f"  Overall R²: {overall_metrics.get('lstm_r2', 'N/A'):.6f}")
         print(f"  Emergence RMSE: {overall_metrics.get('lstm_emerg_rmse', 'N/A'):.6f}")
-        print(f"  Timing Difference (hours): {overall_metrics.get('timing_diff', 'N/A')}")
+        print(f"  Lead Time (hrs): {overall_metrics.get('lead_time', 'N/A')}")
         
         if 'model_efficiency' in all_ar_results[0]:
             eff = all_ar_results[0]['model_efficiency']
